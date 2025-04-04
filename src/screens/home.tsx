@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Eraser } from 'lucide-react';
+import { Eraser, Undo, Redo } from 'lucide-react';
 
 // Define your drawing tool type
 type DrawingTool = 'pen' | 'eraser' | 'none';
+
+// Define a type for our history states
+type HistoryState = ImageData;
 
 const Home: React.FC = () => {
   // Add state for the current tool and color
@@ -12,6 +15,10 @@ const Home: React.FC = () => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [eraserSize, setEraserSize] = useState(20);
   const [penSize, setPenSize] = useState(2);
+  
+  // Add history states for undo/redo
+  const [history, setHistory] = useState<HistoryState[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   // Available colors
   const colors = [
@@ -51,11 +58,71 @@ const Home: React.FC = () => {
     // Fill canvas with white background
     context.fillStyle = '#FFFFFF';
     context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Save initial state to history
+    saveToHistory();
 
     return () => {
       window.removeEventListener('resize', resizeCanvas);
     };
   }, []);
+
+  // Save current canvas state to history
+  const saveToHistory = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    // Get current canvas state
+    const currentState = context.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // If we're not at the end of the history, remove future states
+    if (historyIndex < history.length - 1) {
+      setHistory(history.slice(0, historyIndex + 1));
+    }
+    
+    // Add current state to history
+    setHistory([...history.slice(0, historyIndex + 1), currentState]);
+    setHistoryIndex(historyIndex + 1);
+  };
+
+  // Function to handle undo
+  const handleUndo = () => {
+    if (historyIndex <= 0) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    
+    // Go back one step in history
+    const newIndex = historyIndex - 1;
+    setHistoryIndex(newIndex);
+    
+    // Apply the previous state
+    context.putImageData(history[newIndex], 0, 0);
+  };
+
+  // Function to handle redo
+  const handleRedo = () => {
+    if (historyIndex >= history.length - 1) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    
+    // Go forward one step in history
+    const newIndex = historyIndex + 1;
+    setHistoryIndex(newIndex);
+    
+    // Apply the next state
+    context.putImageData(history[newIndex], 0, 0);
+  };
 
   // Function to handle reset
   const handleReset = () => {
@@ -68,6 +135,9 @@ const Home: React.FC = () => {
     // Clear canvas
     context.fillStyle = '#FFFFFF';
     context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Save the cleared state to history
+    saveToHistory();
   };
 
   // Function to handle run
@@ -125,18 +195,43 @@ const Home: React.FC = () => {
   };
 
   const stopDrawing = () => {
-    setIsDrawing(false);
+    if (isDrawing) {
+      setIsDrawing(false);
+      // Save the state after drawing is complete
+      saveToHistory();
+    }
   };
 
   return (
     <div className="flex flex-col h-screen">
       <div className="flex justify-between items-center p-2 bg-black text-white">
-        <button 
-          className="px-4 py-2"
-          onClick={handleReset}
-        >
-          Reset
-        </button>
+        <div className="flex items-center space-x-2">
+          <button 
+            className="px-4 py-2"
+            onClick={handleReset}
+          >
+            Reset
+          </button>
+          
+          {/* Undo/Redo buttons */}
+          <button 
+            className="p-2 rounded hover:bg-gray-700 disabled:opacity-50"
+            onClick={handleUndo}
+            disabled={historyIndex <= 0}
+            title="Undo"
+          >
+            <Undo size={18} />
+          </button>
+          
+          <button 
+            className="p-2 rounded hover:bg-gray-700 disabled:opacity-50"
+            onClick={handleRedo}
+            disabled={historyIndex >= history.length - 1}
+            title="Redo"
+          >
+            <Redo size={18} />
+          </button>
+        </div>
         
         {/* Color buttons */}
         <div className="flex space-x-2">
