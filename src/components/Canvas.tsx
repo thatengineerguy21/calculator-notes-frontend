@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useDrawing } from '../contexts/DrawingContext';
 
 /**
@@ -20,6 +20,9 @@ const Canvas: React.FC = () => {
   // Track drawing state with a ref to avoid re-renders during drawing
   const isDrawing = useRef(false);
   
+  // Track if canvas has been initialized
+  const [isInitialized, setIsInitialized] = useState(false);
+  
   // Get drawing context values and functions
   const { 
     currentTool, 
@@ -40,57 +43,80 @@ const Canvas: React.FC = () => {
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    // Store the current canvas state
+    let canvasState: ImageData | null = null;
+
     /**
      * Resize canvas to match parent container dimensions
      * with maximum limits to prevent memory issues
      */
     const resizeCanvas = () => {
       const container = canvas.parentElement;
-      if (container) {
-        // Calculate dimensions while respecting maximums
-        const width = Math.min(container.clientWidth, MAX_CANVAS_WIDTH);
-        const height = Math.min(container.clientHeight, MAX_CANVAS_HEIGHT);
+      if (!container) return;
+      
+      // Calculate dimensions while respecting maximums
+      const width = Math.min(container.clientWidth, MAX_CANVAS_WIDTH);
+      const height = Math.min(container.clientHeight, MAX_CANVAS_HEIGHT);
+      
+      // Save current canvas state if it exists
+      if (canvas.width > 0 && canvas.height > 0) {
+        try {
+          canvasState = context.getImageData(0, 0, canvas.width, canvas.height);
+        } catch (e) {
+          console.error("Failed to save canvas state during resize:", e);
+        }
+      }
+      
+      // Only resize if dimensions have changed
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
         
-        // Only resize if dimensions have changed
-        if (canvas.width !== width || canvas.height !== height) {
-          canvas.width = width;
-          canvas.height = height;
-          
-          // Refill with white background after resize
-          context.fillStyle = '#FFFFFF';
-          context.fillRect(0, 0, canvas.width, canvas.height);
+        // Fill with white background
+        context.fillStyle = '#FFFFFF';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Restore previous drawing if available
+        if (canvasState) {
+          try {
+            // Draw at the center or top-left depending on size changes
+            context.putImageData(canvasState, 0, 0);
+          } catch (e) {
+            console.error("Failed to restore canvas state after resize:", e);
+          }
         }
       }
     };
 
-    // Initial resize
-    resizeCanvas();
+    // Initial setup only once
+    if (!isInitialized) {
+      // Initial resize
+      resizeCanvas();
+      
+      // Fill canvas with white background
+      context.fillStyle = '#FFFFFF';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Save initial state to history
+      try {
+        saveToHistory(canvas);
+      } catch (error) {
+        console.error("Error in initial history save:", error);
+      }
+      
+      setIsInitialized(true);
+    }
     
     // Listen for window resize events
     window.addEventListener('resize', resizeCanvas);
-
-    // Fill canvas with white background
-    context.fillStyle = '#FFFFFF';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Save initial state to history
-    try {
-      if (canvas) saveToHistory(canvas);
-    } catch (error) {
-      console.error("Error in initial history save:", error);
-    }
 
     // Clean up event listener on unmount
     return () => {
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [saveToHistory]);
+  }, [saveToHistory, isInitialized]);
 
-  /**
-   * Handle mouse down event to start drawing
-   * 
-   * @param {React.MouseEvent<HTMLCanvasElement>} e - Mouse event
-   */
+  // Rest of the component remains unchanged
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (currentTool === 'none') return;
     
@@ -129,11 +155,6 @@ const Canvas: React.FC = () => {
     context.lineJoin = 'round';
   };
 
-  /**
-   * Handle mouse move event to continue drawing
-   * 
-   * @param {React.MouseEvent<HTMLCanvasElement>} e - Mouse event
-   */
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing.current || currentTool === 'none') return;
     
@@ -153,17 +174,19 @@ const Canvas: React.FC = () => {
     context.stroke();
   };
 
-  /**
-   * Handle mouse up and mouse leave events to stop drawing
-   * Saves the current state to history for undo/redo
-   */
   const stopDrawing = () => {
     if (isDrawing.current) {
       isDrawing.current = false;
       
       // Save the state after drawing is complete
       const canvas = canvasRef.current;
-      if (canvas) saveToHistory(canvas);
+      if (canvas) {
+        try {
+          saveToHistory(canvas);
+        } catch (error) {
+          console.error("Error saving to history after drawing:", error);
+        }
+      }
     }
   };
 
